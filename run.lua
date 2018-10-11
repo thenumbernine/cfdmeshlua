@@ -1,6 +1,8 @@
 #!/usr/bin/env luajit
 require 'ext'
+local ffi = require 'ffi'
 local gl = require 'gl'
+local ig = require 'ffi.imgui'
 local ImGuiApp = require 'imguiapp'
 local View = require 'glapp.view'
 local Orbit = require 'glapp.orbit'
@@ -123,10 +125,15 @@ end
 
 local mins = matrix{-1,-1}
 local maxs = matrix{1,1}
-function App:initGL()
+function App:initGL(...)
+	App.super.initGL(self, ...)
 	self.view.ortho = true
-	self.view.orthoSize = 1.5
 	
+	-- TODO base these on the grid bounds
+	self.view.orthoSize = 1.5
+	self.view.znear = 1
+	self.view.zfar = 1000
+
 --[[ grid
 	local m = 30
 	local n = 20
@@ -137,27 +144,6 @@ function App:initGL()
 				(j-.5)/(n+1)*(maxs[2] - mins[2]) + mins[2]})
 		end
 	end
---]]
--- [[ file
-	local ls = assert(file['grids/n0012_113-33.p2dfmt']):trim():split'\n'
-	local first = ls:remove(1)
-	local m, n = ls:remove(1):trim():split'%s+':map(function(l) return tonumber(l) end):unpack()
-	local x = ls:concat():trim():split'%s+':map(function(l) return tonumber(l) end)
-	assert(#x == 2*m*n)
-	print(m, n, m*n)
-	m=m-1
-	n=n-1
-	local k = 1
-	for i=1,m+1 do
-		for j=1,n+1 do
-			local u = x[k] k=k+1
-			local v = x[k] k=k+1
-			addVtx(matrix{u,v})
-		end
-	end
-	assert(#vtxs == 3729)
-	assert(#vtxs == (m+1)*(n+1), "expected "..#vtxs.." to equal "..((m+1)*(n+1)))
---]]
 
 	for i=1,m do
 		for j=1,n do
@@ -181,6 +167,54 @@ function App:initGL()
 			end
 		end
 	end
+--]]
+
+
+-- [[ file
+	local ls = assert(file['grids/n0012_113-33.p2dfmt']):trim():split'\n'
+	local first = ls:remove(1)
+	local m, n = ls:remove(1):trim():split'%s+':map(function(l) return tonumber(l) end):unpack()
+	local x = ls:concat():trim():split'%s+':map(function(l) return tonumber(l) end)
+	assert(#x == 2*m*n)
+	print(m, n, m*n)
+	-- [[
+	local us = x:sub(1,m*n)
+	local vs = x:sub(m*n+1)
+	assert(#us == #vs)
+	for i=1,#us do
+		local u,v = us[i], vs[i]
+		print(u,v)
+		addVtx(matrix{u,v})
+	end
+	--]]
+	--[[
+	local k = 1
+	for i=1,m*n do
+		local u = x[k] k=k+1
+		local v = x[k] k=k+1
+		print(u,v)
+		addVtx(matrix{u,v})
+	end
+	--]]
+	assert(#vtxs == m*n, "expected "..#vtxs.." to equal "..(m*n))
+	
+	for i=1,n-1 do
+		for j=1,m-1 do
+			local c = addCell(
+				1 + j-1 + m * (i-1),
+				1 + j-1 + m * i,
+				1 + j + m * i,
+				1 + j + m * (i-1))
+			
+			c.U = consFromPrim(matrix{
+				1,
+				.1, 0, 0,
+				1
+			})
+		end
+	end
+--]]
+
 
 	for _,e in ipairs(edges) do
 		local a,b = e.vtxs:unpack()
@@ -220,9 +254,14 @@ local function rotateFrom(vx, vy, n)
 	return vx * n[1] - vy * n[2], vy * n[1] + vx * n[2]
 end
 
-function App:update()
+local bool = ffi.new'bool[1]'
+local running = false
+local showVtxs = true
+local showCellCenters = false
+local showEdges = true
+
+function App:draw()
 	gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-	App.super.update(self)
 	gl.glBegin(gl.GL_QUADS)
 	for _,c in ipairs(cells) do
 		local W = primFromCons(c.U)
@@ -236,27 +275,36 @@ function App:update()
 		end
 	end
 	gl.glEnd()
---[[ show the mesh grid	
-	gl.glColor3f(1,1,1)
-	gl.glPointSize(3)
-	gl.glBegin(gl.GL_POINTS)
-	for _,v in ipairs(vtxs) do
-		gl.glVertex2d(v.pos:unpack())
-	end
-	for _,c in ipairs(cells) do
-		gl.glVertex2d(c.pos:unpack())
-	end
-	gl.glEnd()
-	gl.glPointSize(1)
-	gl.glBegin(gl.GL_LINES)
-	for _,e in ipairs(edges) do
-		local a,b = e.vtxs:unpack()
-		gl.glVertex2d(a.pos:unpack())
-		gl.glVertex2d(b.pos:unpack())
-	end
-	gl.glEnd()
---]]
 
+	if showVtxs or showCellCenters then
+		gl.glColor3f(1,1,1)
+		gl.glPointSize(3)
+		gl.glBegin(gl.GL_POINTS)
+		if showVtxs then
+			for _,v in ipairs(vtxs) do
+				gl.glVertex2d(v.pos:unpack())
+			end
+		end
+		if showCellCenters then
+			for _,c in ipairs(cells) do
+				gl.glVertex2d(c.pos:unpack())
+			end
+		end
+		gl.glEnd()
+		gl.glPointSize(1)
+	end
+	if showEdges then
+		gl.glBegin(gl.GL_LINES)
+		for _,e in ipairs(edges) do
+			local a,b = e.vtxs:unpack()
+			gl.glVertex2d(a.pos:unpack())
+			gl.glVertex2d(b.pos:unpack())
+		end
+		gl.glEnd()
+	end
+end
+
+function App:step()
 	-- calculate dt
 	local result = math.huge
 	local cfl = .5
@@ -394,6 +442,31 @@ function App:update()
 		end
 		c.U = c.U + dU_dt * dt
 	end
+end
+
+function App:update()
+	self:draw()
+	if running then
+		self:step()
+	end
+	App.super.update(self)
+end
+
+function App:updateGUI()
+	bool[0] = running
+	if ig.igCheckbox('running', bool) then running = bool[0] end
+	
+	bool[0] = showVtxs
+	if ig.igCheckbox('showVtxs', bool) then showVtxs = bool[0] end
+	
+	bool[0] = showCellCenters
+	if ig.igCheckbox('showCellCenters', bool) then showCellCenters = bool[0] end
+	
+	bool[0] = showEdges
+	if ig.igCheckbox('showEdges', bool) then showEdges = bool[0] end
+	
+	bool[0] = self.view.ortho
+	if ig.igCheckbox('ortho', bool) then self.view.ortho = bool[0] end
 end
 
 App():run()
