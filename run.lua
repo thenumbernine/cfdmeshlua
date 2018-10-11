@@ -30,9 +30,13 @@ local vtxs = table()
 local edges = table()
 local cells = table()
 
+local mergeUniqueVtxs = false
+
 local function addVtx(x)
-	for _,v in ipairs(vtxs) do
-		if v.pos == x then return v end
+	if mergeUniqueVtxs then
+		for _,v in ipairs(vtxs) do
+			if v.pos == x then return v end
+		end
 	end
 	local v = Vertex()
 	v.pos = matrix(x)
@@ -56,22 +60,25 @@ local function addEdge(i,j)
 	return e
 end
 
-local function addCell(a,b,c,d)
-	local v = Cell()
-	v.vtxs:insert(vtxs[a])
-	v.vtxs:insert(vtxs[b])
-	v.vtxs:insert(vtxs[c])
-	v.vtxs:insert(vtxs[d])
-	v.edges:insert(addEdge(a,b))
-	v.edges:insert(addEdge(b,c))
-	v.edges:insert(addEdge(c,d))
-	v.edges:insert(addEdge(d,a))
-	cells:insert(v)
-	v.pos = v.vtxs:map(function(v) return v.pos end):sum() * .25
-	for _,e in ipairs(v.edges) do
-		e.cells:insert(v)
+local function addCell(...)
+	local c = Cell()
+	local n = select('#', ...)
+	local indexes = table()
+	for i=1,n do
+		local vtxindex = select(i, ...)
+		local v = assert(vtxs[vtxindex], "couldn't find vertex "..vtxindex)
+		c.vtxs:insert(v)
+		indexes:insert(vtxindex)
 	end
-	return v
+	for i=1,n do
+		c.edges:insert(addEdge(indexes[i], indexes[i%n+1]))
+	end
+	cells:insert(c)
+	c.pos = c.vtxs:map(function(v) return v.pos end):sum() / n
+	for _,e in ipairs(c.edges) do
+		e.cells:insert(c)
+	end
+	return c
 end
 
 local function polyVol(...)
@@ -119,21 +126,46 @@ local maxs = matrix{1,1}
 function App:initGL()
 	self.view.ortho = true
 	self.view.orthoSize = 1.5
-	local n = 50
-	for i=1,n+1 do
+	
+--[[ grid
+	local m = 30
+	local n = 20
+	for i=1,m+1 do
 		for j=1,n+1 do
 			addVtx(matrix{
-				(i-.5)/(n+1)*(maxs[1] - mins[1]) + mins[1],
+				(i-.5)/(m+1)*(maxs[1] - mins[1]) + mins[1],
 				(j-.5)/(n+1)*(maxs[2] - mins[2]) + mins[2]})
 		end
 	end
-	for i=1,n do
+--]]
+-- [[ file
+	local ls = assert(file['grids/n0012_113-33.p2dfmt']):trim():split'\n'
+	local first = ls:remove(1)
+	local m, n = ls:remove(1):trim():split'%s+':map(function(l) return tonumber(l) end):unpack()
+	local x = ls:concat():trim():split'%s+':map(function(l) return tonumber(l) end)
+	assert(#x == 2*m*n)
+	print(m, n, m*n)
+	m=m-1
+	n=n-1
+	local k = 1
+	for i=1,m+1 do
+		for j=1,n+1 do
+			local u = x[k] k=k+1
+			local v = x[k] k=k+1
+			addVtx(matrix{u,v})
+		end
+	end
+	assert(#vtxs == 3729)
+	assert(#vtxs == (m+1)*(n+1), "expected "..#vtxs.." to equal "..((m+1)*(n+1)))
+--]]
+
+	for i=1,m do
 		for j=1,n do
 			local c = addCell(
-				1 + i-1 + (n+1) * (j-1),
-				1 + i-1 + (n+1) * j,
-				1 + i + (n+1) * j,
-				1 + i + (n+1) * (j-1))
+				1 + j-1 + (n+1) * (i-1),
+				1 + j-1 + (n+1) * i,
+				1 + j + (n+1) * i,
+				1 + j + (n+1) * (i-1))
 			if c.pos[1] < 0 and c.pos[2] < 0 then
 				c.U = consFromPrim(matrix{
 					1,
@@ -166,6 +198,10 @@ function App:initGL()
 				e.cells = table{a,b}
 			end
 			e.cellDist = (b.pos - a.pos):norm()
+		else
+			local c = a or b
+			-- for ghost state's sake:
+			e.cellDist = (c.pos - e.pos):norm() * 2
 		end
 	end
 
@@ -200,6 +236,7 @@ function App:update()
 		end
 	end
 	gl.glEnd()
+--[[ show the mesh grid	
 	gl.glColor3f(1,1,1)
 	gl.glPointSize(3)
 	gl.glBegin(gl.GL_POINTS)
@@ -218,6 +255,7 @@ function App:update()
 		gl.glVertex2d(b.pos:unpack())
 	end
 	gl.glEnd()
+--]]
 
 	-- calculate dt
 	local result = math.huge
@@ -242,15 +280,35 @@ function App:update()
 	end
 	local dt = result * cfl
 
-	for _,e in ipairs(edges) do
+	local function getEdgeStates(e)
 		local cL, cR = e.cells:unpack()
+		local UL, UR
 		if cL and cR then
+			UL = matrix(assert(cL.U))
+			UR = matrix(assert(cR.U))
+		elseif cL then
+			UL = matrix(assert(cL.U))
+			UR = matrix(UL)
+			local m = matrix{UR[2],UR[3]}
+			m = m - e.normal * (2 * (e.normal * m))
+			UR[2], UR[3] = m:unpack()
+		elseif cR then
+			UR = matrix(assert(cR.U))
+			UL = matrix(UR)
+			local m = matrix{UL[2],UL[3]}
+			m = m - e.normal * (2 * (e.normal * m))
+			UL[2], UL[3] = m:unpack()
+		else
+			error"here"
+		end
+		return UL, UR
+	end
+
+	for _,e in ipairs(edges) do
+		local UL, UR = getEdgeStates(e)
 
 			-- 1) roe values at edge 
-			
-			local UL = matrix(assert(cL.U))
-			local UR = matrix(assert(cR.U))
-
+		do
 			-- rotate to align edge normal to x axis
 			-- so x-direction flux jacobian is good for calculating the flux 
 			UL[2], UL[3] = rotateTo(UL[2], UL[3], e.normal)
