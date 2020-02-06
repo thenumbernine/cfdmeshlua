@@ -3,10 +3,7 @@ require 'ext'
 local ffi = require 'ffi'
 local gl = require 'gl'
 local ig = require 'ffi.imgui'
-local ImGuiApp = require 'imguiapp'
-local View = require 'glapp.view'
-local Orbit = require 'glapp.orbit'
-local App = class(Orbit(View.apply(ImGuiApp)))
+local App = class(require 'glapp.orbit'(require 'imguiapp'))
 local matrix = require 'matrix'
 App.title = 'cfd mesh'
 
