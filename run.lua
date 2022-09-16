@@ -168,7 +168,7 @@ function App:initGL(...)
 
 
 -- [[ file
-	local ls = assert(file['grids/n0012_113-33.p2dfmt']):trim():split'\n'
+	local ls = assert(file'grids/n0012_113-33.p2dfmt':read()):trim():split'\n'
 	local first = ls:remove(1)
 	local m, n = ls:remove(1):trim():split'%s+':map(function(l) return tonumber(l) end):unpack()
 	local x = ls:concat():trim():split'%s+':map(function(l) return tonumber(l) end)
