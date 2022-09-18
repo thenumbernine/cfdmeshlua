@@ -1,10 +1,11 @@
 #!/usr/bin/env luajit
 require 'ext'
-local ffi = require 'ffi'
 local gl = require 'gl'
-local ig = require 'ffi.imgui'
-local App = class(require 'glapp.orbit'(require 'imguiapp'))
+local ig = require 'imgui'
 local matrix = require 'matrix'
+
+local App = require 'imguiapp.withorbit'()
+
 App.title = 'cfd mesh'
 
 local Vertex = class()
@@ -251,11 +252,10 @@ local function rotateFrom(vx, vy, n)
 	return vx * n[1] - vy * n[2], vy * n[1] + vx * n[2]
 end
 
-local bool = ffi.new'bool[1]'
-local running = false
-local showVtxs = true
-local showCellCenters = false
-local showEdges = true
+running = false
+showVtxs = true
+showCellCenters = false
+showEdges = true
 
 function App:draw()
 	gl.glClear(gl.GL_COLOR_BUFFER_BIT)
@@ -450,20 +450,11 @@ function App:update()
 end
 
 function App:updateGUI()
-	bool[0] = running
-	if ig.igCheckbox('running', bool) then running = bool[0] end
-	
-	bool[0] = showVtxs
-	if ig.igCheckbox('showVtxs', bool) then showVtxs = bool[0] end
-	
-	bool[0] = showCellCenters
-	if ig.igCheckbox('showCellCenters', bool) then showCellCenters = bool[0] end
-	
-	bool[0] = showEdges
-	if ig.igCheckbox('showEdges', bool) then showEdges = bool[0] end
-	
-	bool[0] = self.view.ortho
-	if ig.igCheckbox('ortho', bool) then self.view.ortho = bool[0] end
+	ig.luatableCheckbox('running', _G, 'running')
+	ig.luatableCheckbox('showVtxs', _G, 'showVtxs')
+	ig.luatableCheckbox('showCellCenters', _G, 'showCellCenters')
+	ig.luatableCheckbox('showEdges', _G, 'showEdges')
+	ig.luatableCheckbox('ortho', self.view, 'ortho')
 end
 
 App():run()
