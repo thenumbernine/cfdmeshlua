@@ -457,4 +457,4 @@ function App:updateGUI()
 	ig.luatableCheckbox('ortho', self.view, 'ortho')
 end
 
-App():run()
+return App():run()
