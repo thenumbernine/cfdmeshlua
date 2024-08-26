@@ -5,7 +5,7 @@ local ig = require 'imgui'
 local matrix = require 'matrix'
 
 local App = require 'imguiapp.withorbit'()
-
+App.viewUseGLMatrixMode = true
 App.title = 'cfd mesh'
 
 local Vertex = class()
